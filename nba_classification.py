@@ -83,6 +83,8 @@ def main():
     print(f"Missing values: {clean_df.isnull().sum().sum()}")
     print(clean_df.columns.tolist())
 
+    print("Testing new branch git")
+
     return clean_df
     
 if __name__ == "__main__":
