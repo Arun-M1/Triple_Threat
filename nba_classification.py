@@ -38,10 +38,10 @@ def collect_team_data(start_year=2010, end_year=2025):
     df = pd.concat(dataset, ignore_index=True)
 
     df['Season_Year'] = df['Season'].astype(str).str.split('-').str[-1]
-    df['Season_Year'] = '20' + df['Season_Year']  #add 20 to end year to become 2024, etc.
     df['Season_Year'] = pd.to_numeric(df['Season_Year'], errors='coerce')
+    df['Season_Year'] = 2000 + df['Season_Year'] - 1.0  #add 20 to end year to become 2024, etc.
 
-    df = df[(df['Season_Year'] > start_year) & (df['Season_Year'] <= end_year)]
+    df = df[(df['Season_Year'] >= start_year) & (df['Season_Year'] < end_year)]
 
     return df
 
@@ -82,8 +82,6 @@ def main():
     print(f"Total rows: {len(clean_df)}")
     print(f"Missing values: {clean_df.isnull().sum().sum()}")
     print(clean_df.columns.tolist())
-
-    print("Testing new branch git")
 
     return clean_df
     
