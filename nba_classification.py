@@ -6,9 +6,9 @@ def collect_team_data(start_year=2010, end_year=2025):
     #Returns:
         #Dataframe of team statistics
     
-    # nba_teams = ["ATL", "BOS", "NJN", "CHA", "CHI", "CLE", "DAL", "DEN", "DET", "GSW","HOU", "IND", "LAC", "LAL", "MEM",
-    #              "MIA", "MIL", "MIN", "NOH", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
-    nba_teams = ['ATL']
+    nba_teams = ["ATL", "BOS", "NJN", "CHA", "CHI", "CLE", "DAL", "DEN", "DET", "GSW","HOU", "IND", "LAC", "LAL", "MEM",
+                 "MIA", "MIL", "MIN", "NOH", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
+    # nba_teams = ['ATL']
     
     dataset = []
     num_teams = len(nba_teams)
@@ -94,17 +94,12 @@ def main():
     clean_df = clean_team_data(df)
     n_rows = len(df)
     
-    df2 = pd.DataFrame({'Test_column': [random.randint(1, 2) for _ in range(n_rows + 1)], 
-                        'Age': [random.randint(1, 2) for _ in range(n_rows + 1)]})
-    combined_df = combine_dataframe(clean_df, df2)
+    # df2 = pd.DataFrame({'Test_column': [random.randint(1, 2) for _ in range(n_rows + 1)], 
+    #                     'Age': [random.randint(1, 2) for _ in range(n_rows + 1)]})
+    # combined_df = combine_dataframe(clean_df)
 
-    # print(f"Total rows: {len(clean_df)}")
-    # print(f"Missing values: {clean_df.isnull().sum().sum()}")
-    # print(clean_df.columns.tolist())
-    print(f"Total rows: {len(combined_df)}")
-    print(f"Missing values: {combined_df.isnull().sum().sum()}")
-    print(combined_df.columns.tolist())
-    print(combined_df)
+    print("Exporting dataframe into CSV file")
+    clean_df.to_csv('team_data.csv', index=False)
     
 if __name__ == "__main__":
     main()
