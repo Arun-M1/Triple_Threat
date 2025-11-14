@@ -1,5 +1,6 @@
 import pandas as pd
 import time
+import random
 
 def collect_team_data(start_year=2010, end_year=2025):
     #Returns:
@@ -75,16 +76,35 @@ def clean_team_data(df):
 
     return clean_df
 
+def combine_dataframe(df1, df2):
+    combined_df = df1.copy()
+    for column in df2.columns:
+        if column not in combined_df.columns:
+            combined_df[column] = df2[column]
+
+    return combined_df
+
 def main():
+    start_time = time.time()
     df = collect_team_data()
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Execution time: {elapsed_time:.6f} seconds")
+    
     clean_df = clean_team_data(df)
+    n_rows = len(df)
+    
+    df2 = pd.DataFrame({'Test_column': [random.randint(1, 2) for _ in range(n_rows + 1)], 
+                        'Age': [random.randint(1, 2) for _ in range(n_rows + 1)]})
+    combined_df = combine_dataframe(clean_df, df2)
 
-    print(f"Total rows: {len(clean_df)}")
-    print(f"Missing values: {clean_df.isnull().sum().sum()}")
-    print(clean_df.columns.tolist())
-
-    return clean_df
+    # print(f"Total rows: {len(clean_df)}")
+    # print(f"Missing values: {clean_df.isnull().sum().sum()}")
+    # print(clean_df.columns.tolist())
+    print(f"Total rows: {len(combined_df)}")
+    print(f"Missing values: {combined_df.isnull().sum().sum()}")
+    print(combined_df.columns.tolist())
+    print(combined_df)
     
 if __name__ == "__main__":
-    df = main()
-    print(df)
+    main()
