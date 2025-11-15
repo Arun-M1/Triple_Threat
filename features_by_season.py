@@ -3,6 +3,70 @@ import time
 import requests
 from functools import reduce
 
+TEAM_ABBR = {
+    "Atlanta Hawks": "ATL",
+    "Boston Celtics": "BOS",
+    "Brooklyn Nets": "BRK",
+    "Charlotte Hornets": "CHA",
+    "Chicago Bulls": "CHI",
+    "Cleveland Cavaliers": "CLE",
+    "Dallas Mavericks": "DAL",
+    "Denver Nuggets": "DEN",
+    "Detroit Pistons": "DET",
+    "Golden State Warriors": "GSW",
+    "Houston Rockets": "HOU",
+    "Indiana Pacers": "IND",
+    "Los Angeles Clippers": "LAC",
+    "Los Angeles Lakers": "LAL",
+    "Memphis Grizzlies": "MEM",
+    "Miami Heat": "MIA",
+    "Milwaukee Bucks": "MIL",
+    "Minnesota Timberwolves": "MIN",
+    "New Orleans Pelicans": "NOP",
+    "New York Knicks": "NYK",
+    "Oklahoma City Thunder": "OKC",
+    "Orlando Magic": "ORL",
+    "Philadelphia 76ers": "PHI",
+    "Phoenix Suns": "PHX",
+    "Portland Trail Blazers": "POR",
+    "Sacramento Kings": "SAC",
+    "San Antonio Spurs": "SAS",
+    "Toronto Raptors": "TOR",
+    "Utah Jazz": "UTA",
+    "Washington Wizards": "WAS",
+
+    # old team mappings to current names
+    "Charlotte Bobcats": "CHA",
+    "New Jersey Nets": "BRK",
+    "New Orleans Hornets": "NOP",
+}
+
+# mapping for duplicate column names
+rename_map = {
+    '2P_y': 'freq_2P',
+    '0-3': 'freq_0_3',
+    '3-10': 'freq_3_10',
+    '10-16': 'freq_10_16',
+    '16-3P': 'freq_16_3P',
+    '3P_y': 'freq_3P',
+    '2P.1': 'fg_2P',
+    '0-3.1': 'fg_0_3',
+    '3-10.1': 'fg_3_10',
+    '10-16.1': 'fg_10_16',
+    '16-3P.1': 'fg_16_3P',
+    '3P.1': 'fg_3P',
+    '2P.2': 'astd_2P_rate',
+    '3P.2': 'astd_3P_rate',
+    '%FGA': 'freq_dunks',
+    'Md.': 'made_dunks',
+    '%FGA.1': 'freq_layups',
+    'Md..1': 'made_layups',
+    '%3PA': 'freq_3PA_corner',
+    '3P%_y': 'fg_3PA_corner',
+    'Att.': "half-court_attempts",
+    'Md..2': 'made_half-court',
+}
+
 def clean_team_col(df):
     # Your existing team cleaner (or a simple one like this)
     df = df.copy()
@@ -62,17 +126,26 @@ def fetch_league_tables_for_year(year):
             # response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
         url = f"https://www.basketball-reference.com/leagues/NBA_{year}.html"
         try:
-            tables_h1 = pd.read_html(url, header=1)
             tables_h0 = pd.read_html(url, header=0)
+            tables_h1 = pd.read_html(url, header=1)
         except Exception as e:
             print(f"Error collecting {year}: {e}")
             return None
+        
+        if year < 2016:
+            per_100_index = 6
+            advanced_index = 8
+            shooting_index = 9
+        else:
+            per_100_index = 8
+            advanced_index = 10
+            shooting_index = 11
         try:
-            per100_raw = tables_h0[8].copy()
+            per100_raw = tables_h0[per_100_index].copy()
             # print("per 100 raw")
             # print(per100_raw.head())
-            advanced_raw = tables_h1[10].copy()
-            shooting_raw = tables_h1[11].copy()
+            advanced_raw = tables_h1[advanced_index].copy()
+            shooting_raw = tables_h1[shooting_index].copy()
         except Exception as e:
             print(f"Table index mismatch for {year}: {e}")
             return None
@@ -91,32 +164,6 @@ def fetch_league_tables_for_year(year):
             frames,
         )
 
-        # mapping for duplicate column names
-        rename_map = {
-            '2P_y': 'freq_2P',
-            '0-3': 'freq_0_3',
-            '3-10': 'freq_3_10',
-            '10-16': 'freq_10_16',
-            '16-3P': 'freq_16_3P',
-            '3P_y': 'freq_3P',
-            '2P.1': 'fg_2P',
-            '0-3.1': 'fg_0_3',
-            '3-10.1': 'fg_3_10',
-            '10-16.1': 'fg_10_16',
-            '16-3P.1': 'fg_16_3P',
-            '3P.1': 'fg_3P',
-            '2P.2': 'astd_2P_rate',
-            '3P.2': 'astd_3P_rate',
-            '%FGA': 'freq_dunks',
-            'Md.': 'made_dunks',
-            '%FGA.1': 'freq_layups',
-            'Md..1': 'made_layups',
-            '%3PA': 'freq_3PA_corner',
-            '3P%_y': 'fg_3PA_corner',
-            'Att.': "half-court_attempts",
-            'Md..2': 'made_half-court',
-        }
-
         merged = merged.rename(columns={k: v for k, v in rename_map.items() if k in merged.columns})
 
         # add season year as column
@@ -132,6 +179,11 @@ def test_single_year(year):
     if df is None or df.empty:
         print("No data returned! (df is None or empty)")
         return
+    
+    columns_to_remove = ['Rk_x', 'G_x', 'MP_x', 'Rk_y', 'Age', 'W', 'L', 'PW', 'PL', 'MOV', 'SOS', 'SRS', 'DRtg', 'NRtg', 'eFG%.1', 'TOV%.1', 'DRB%', 'FT/FGA.1', 
+                         'Arena', 'Attend.', 'Attend./G', 'Rk', 'G_y', 'MP_y', 'FG%_y']
+    
+    df = df.drop(columns=columns_to_remove, errors='ignore')
 
     print(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns\n")
 
@@ -151,41 +203,54 @@ def test_single_year(year):
     return df
 
 
-def main():
-    test_year = 2024
-    df_test = test_single_year(test_year)
+def main(single_year, save_csv):
+    if single_year:
+        test_year = 2015
+        df_older = test_single_year(test_year)
 
-    # years = range(2010, 2025)
-    # dfs = []
+        test_year = 2016
+        df_newer = test_single_year(test_year)
+    else:
+        years = range(2014, 2017)
+        dfs = []
 
-    # for y in years:
-    #     df = fetch_league_tables_for_year(y)
-    #     if df is None:
-    #         print(f"[WARN] Skipping year {y} due to fetch error.")
-    #         continue
-    #     dfs.append(df)
-    #     time.sleep(3)
+        for y in years:
+            df = fetch_league_tables_for_year(y)
+            if df is None:
+                print(f"[WARN] Skipping year {y} due to fetch error.")
+                continue
+            dfs.append(df)
+            time.sleep(3)
 
-    # all_df = pd.concat(dfs, ignore_index=True)
+        all_df = pd.concat(dfs, ignore_index=True)
 
-    # columns_to_remove = ['Rk_x', 'G_x', 'MP_x', 'Rk_y', 'Age', 'W', 'L', 'PW', 'PL', 'MOV', 'SOS', 'SRS', 'DRtg', 'NRtg', 'eFG%.1', 'TOV%.1', 'DRB%', 'FT/FGA.1', 
-    #                      'Arena', 'Attend.', 'Attend./G', 'Rk', 'G_y', 'MP_y', 'FG%_y']
-    
-    # all_df = all_df.drop(columns=columns_to_remove, errors='ignore')
+        columns_to_remove = ['Rk_x', 'G_x', 'MP_x', 'Rk_y', 'Age', 'W', 'L', 'PW', 'PL', 'MOV', 'SOS', 'SRS', 'DRtg', 'NRtg', 'eFG%.1', 'TOV%.1', 'DRB%', 'FT/FGA.1', 
+                            'Arena', 'Attend.', 'Attend./G', 'Rk', 'G_y', 'MP_y', 'FG%_y']
+        
+        # drop irrelevant columns
+        all_df = all_df.drop(columns=columns_to_remove, errors='ignore')
 
-    # print("=== Combined DataFrame Shape ===")
-    # print(f"{all_df.shape[0]} rows × {all_df.shape[1]} columns\n")
-    
-    # print("=== Combined DataFrame Columns ===")
-    # print(all_df.columns.tolist())
+        # map team names to abbreviations
+        all_df["Team"] = all_df["Team"].map(TEAM_ABBR)
 
-    # print("=== Combined DataFrame Preview ===")
-    # print(all_df.head())
-    
-    # # Save to csv
-    # all_df.to_csv('test_raw_data.csv', index=False)
-    # print("Test data saved to 'test_raw_data.csv'")
+        missing = all_df[all_df["Team"].isna()]
+        print(missing["Team"].unique())
+
+        print("=== Combined DataFrame Shape ===")
+        print(f"{all_df.shape[0]} rows × {all_df.shape[1]} columns\n")
+        
+        print("=== Combined DataFrame Columns ===")
+        print(all_df.columns.tolist())
+
+        print("=== Combined DataFrame Preview ===")
+        print(all_df.head())
+        
+        # Save to csv
+        if save_csv:
+            all_df.to_csv('test_raw_data.csv', index=False)
+            print("Test data saved to 'test_raw_data.csv'")
     
 
 if __name__ == "__main__":
-    main()
+    # set True to save csv or False to skip
+    main(single_year = False, save_csv=False)
