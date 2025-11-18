@@ -2,48 +2,81 @@ import pandas as pd
 import time
 import random
 
-def collect_team_data(start_year=2010, end_year=2025):
-    #Returns:
-        #Dataframe of team statistics
-    
-    nba_teams = ["ATL", "BOS", "NJN", "CHA", "CHI", "CLE", "DAL", "DEN", "DET", "GSW","HOU", "IND", "LAC", "LAL", "MEM",
-                 "MIA", "MIL", "MIN", "NOH", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
-    # nba_teams = ['ATL']
-    
-    dataset = []
-    num_teams = len(nba_teams)
+from features_by_season import build_dataframe
 
-    for i, team in enumerate(nba_teams, 1):
-        url = f"https://www.basketball-reference.com/teams/{team}/stats_basic_totals.html"
+TEAM_MAPPING = {
+    'ATL': 'ATL',  # Atlanta Hawks
+    'BOS': 'BOS',  # Boston Celtics
+    'NJN': 'BRK',  # Brooklyn Nets (includes New Jersey history)
+    'CHA': 'CHA',  # Charlotte Hornets (Note: BBR uses CHO, your CSV uses CHA)
+    'CHI': 'CHI',  # Chicago Bulls
+    'CLE': 'CLE',  # Cleveland Cavaliers
+    'DAL': 'DAL',  # Dallas Mavericks
+    'DEN': 'DEN',  # Denver Nuggets
+    'DET': 'DET',  # Detroit Pistons
+    'GSW': 'GSW',  # Golden State Warriors
+    'HOU': 'HOU',  # Houston Rockets
+    'IND': 'IND',  # Indiana Pacers
+    'LAC': 'LAC',  # Los Angeles Clippers
+    'LAL': 'LAL',  # Los Angeles Lakers
+    'MEM': 'MEM',  # Memphis Grizzlies (includes Vancouver history)
+    'MIA': 'MIA',  # Miami Heat
+    'MIL': 'MIL',  # Milwaukee Bucks
+    'MIN': 'MIN',  # Minnesota Timberwolves
+    'NOH': 'NOP',  # New Orleans Pelicans
+    'NYK': 'NYK',  # New York Knicks
+    'OKC': 'OKC',  # Oklahoma City Thunder (includes Seattle history)
+    'ORL': 'ORL',  # Orlando Magic
+    'PHI': 'PHI',  # Philadelphia 76ers
+    'PHO': 'PHX',  # Phoenix Suns
+    'POR': 'POR',  # Portland Trail Blazers
+    'SAC': 'SAC',  # Sacramento Kings
+    'SAS': 'SAS',  # San Antonio Spurs
+    'TOR': 'TOR',  # Toronto Raptors
+    'UTA': 'UTA',  # Utah Jazz
+    'WAS': 'WAS'   # Washington Wizards
+}
 
+def collect_team_data(start_year=2010, end_year=2024):
+    all_data = []
+    total_teams = len(TEAM_MAPPING)
+    
+    for idx, (url_abbr, current_abbr) in enumerate(TEAM_MAPPING.items(), 1):
+        # print(f"[{idx}/{total_teams}] Collecting {current_abbr} from URL: {url_abbr}")
+        
+        url = f"https://www.basketball-reference.com/teams/{url_abbr}/stats_basic_totals.html"
+        
         try:
             tables = pd.read_html(url)
             team_data = tables[0].copy()
-            team_data['Team_Acronym'] = team
-            # print(f"Data retrieved: {team_data}")
-
-            dataset.append(team_data)
-
+            
+            team_data['Team_Acronym'] = current_abbr
+            
+            all_data.append(team_data)
+            
             time.sleep(2)
-
+            
         except Exception as e:
-            print(f"Error collecting {team}: {e}")
+            print(f"Error collecting {url_abbr}: {e}")
             continue
     
-    #check if all team data collected
-    if not dataset:
-        raise ValueError("No data collected.")
-    else:
-        print(f"All data collected")
-
-    df = pd.concat(dataset, ignore_index=True)
-
-    df['Season_Year'] = df['Season'].astype(str).str.split('-').str[-1]
+    if not all_data:
+        raise ValueError("No data collected")
+    
+    print(f"\nCollected data from {len(all_data)} teams")
+    
+    # Combine all data
+    df = pd.concat(all_data, ignore_index=True)
+    
+    # Extract starting year from Season
+    df['Season_Year'] = df['Season'].astype(str).str.extract(r'^(\d{4})')[0]
     df['Season_Year'] = pd.to_numeric(df['Season_Year'], errors='coerce')
-    df['Season_Year'] = 2000 + df['Season_Year'] - 1.0  #add 20 to end year to become 2024, etc.
-
-    df = df[(df['Season_Year'] >= start_year) & (df['Season_Year'] < end_year)]
-
+    
+    # Filter to year range
+    df = df[(df['Season_Year'] >= start_year) & (df['Season_Year'] <= end_year)]
+    
+    print(f"Filtered to years {start_year}-{end_year}: {len(df)} team-seasons")
+    
     return df
 
 def clean_team_data(df):
@@ -76,30 +109,49 @@ def clean_team_data(df):
 
     return clean_df
 
-def combine_dataframe(df1, df2):
-    combined_df = df1.copy()
-    for column in df2.columns:
-        if column not in combined_df.columns:
-            combined_df[column] = df2[column]
+def combine_dataframe(csv1, csv2):
+    df1 = pd.read_csv(csv1)
+    df2 = pd.read_csv(csv2)
+
+    combined_df = pd.merge(
+        df1,
+        df2,
+        how='outer',
+        on=['Team_Acronym', 'Season_Year'],
+        suffixes=('_total', '_per100')
+    )
+
+    other_cols = [col for col in combined_df.columns if col not in ['Team_Acronym', 'Season_Year']]
+
+    combined_df = combined_df[['Team_Acronym', 'Season_Year'] + other_cols]
 
     return combined_df
 
 def main():
+    start_year = 2010
+    end_year = 2025
+
     start_time = time.time()
-    df = collect_team_data()
+    # df = collect_team_data()
     end_time = time.time()
     elapsed_time = end_time - start_time
     print(f"Execution time: {elapsed_time:.6f} seconds")
     
-    clean_df = clean_team_data(df)
-    n_rows = len(df)
-    
-    # df2 = pd.DataFrame({'Test_column': [random.randint(1, 2) for _ in range(n_rows + 1)], 
-    #                     'Age': [random.randint(1, 2) for _ in range(n_rows + 1)]})
-    # combined_df = combine_dataframe(clean_df)
+    # clean_df = clean_team_data(df)
+    # n_rows = len(df)
 
     print("Exporting dataframe into CSV file")
-    clean_df.to_csv('team_data.csv', index=False)
+    # clean_df.to_csv('team_data_1.csv', index=False)
+
+    # df2 = build_dataframe(start_year + 1, end_year + 1, save_csv=True)
+
+    csv1 = "team_data_2.csv"
+    csv2 = "test_raw_data.csv"
+
+    combined_df = combine_dataframe(csv1, csv2)
+
+    combined_df.to_csv("combined_dataframe.csv", index=False)
+    
     
 if __name__ == "__main__":
     main()
