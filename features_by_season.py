@@ -164,10 +164,12 @@ def fetch_league_tables_for_year(year):
             frames,
         )
 
+        merged.columns = [col.replace('_x', '_per100') for col in merged.columns]
+
         merged = merged.rename(columns={k: v for k, v in rename_map.items() if k in merged.columns})
 
         # add season year as column
-        merged["Season_Year"] = int(year)
+        merged["Season_Year"] = float(year)
         return merged
 
 
@@ -219,22 +221,19 @@ def build_dataframe(start_year=2010, end_year=2025, save_csv=False):
     all_df = pd.concat(dfs, ignore_index=True)
 
     columns_to_remove = ['Rk_x', 'G_x', 'MP_x', 'Rk_y', 'Age', 'W', 'L', 'PW', 'PL', 'MOV', 'SOS', 'SRS', 'DRtg', 'NRtg', 'eFG%.1', 'TOV%.1', 'DRB%', 'FT/FGA.1', 
-                            'Arena', 'Attend.', 'Attend./G', 'Rk', 'G_y', 'MP_y', 'FG%_y']
+                            'Arena', 'Attend.', 'Attend./G', 'Rk', 'G_y', 'MP_y', 'FG%_y', 'Rk_per100', 'G_per100', 'MP_per100']
         
     # drop irrelevant columns
     all_df = all_df.drop(columns=columns_to_remove, errors='ignore')
 
-    all_df["Season_Year"] = pd.to_numeric(all_df["Season_Year"], errors="coerce").astype("Int64")
+    all_df["Season_Year"] = pd.to_numeric(all_df["Season_Year"], errors="coerce").astype("Int64") - 1
 
-    # if "Team_Acronym" not in all_df.columns:
-    #     # map team names to abbreviations
-    #     all_df["Team_Acronym"] = all_df["Team"].map(TEAM_ABBR)
     # map team names to abbreviations
     all_df["Team_Acronym"] = all_df["Team"].map(TEAM_ABBR)
     
     if save_csv:
-            all_df.to_csv('test_raw_data.csv', index=False)
-            print("Test data saved to 'test_raw_data.csv'")
+        all_df.to_csv('test_raw_data.csv', index=False)
+        print("Test data saved to 'test_raw_data.csv'")
 
     return all_df
     
@@ -246,44 +245,7 @@ def main(single_year, save_csv):
         test_year = 2016
         df_newer = test_single_year(test_year)
     else:
-        years = range(2010, 2025)
-        dfs = []
-
-        for y in years:
-            df = fetch_league_tables_for_year(y)
-            if df is None:
-                print(f"[WARN] Skipping year {y} due to fetch error.")
-                continue
-            dfs.append(df)
-            time.sleep(3)
-
-        all_df = pd.concat(dfs, ignore_index=True)
-
-        columns_to_remove = ['Rk_x', 'G_x', 'MP_x', 'Rk_y', 'Age', 'W', 'L', 'PW', 'PL', 'MOV', 'SOS', 'SRS', 'DRtg', 'NRtg', 'eFG%.1', 'TOV%.1', 'DRB%', 'FT/FGA.1', 
-                            'Arena', 'Attend.', 'Attend./G', 'Rk', 'G_y', 'MP_y', 'FG%_y']
-        
-        # drop irrelevant columns
-        all_df = all_df.drop(columns=columns_to_remove, errors='ignore')
-
-        # map team names to abbreviations
-        all_df["Team_Acronym"] = all_df["Team"].map(TEAM_ABBR)
-
-        missing = all_df[all_df["Team"].isna()]
-        print(missing["Team"].unique())
-
-        print("=== Combined DataFrame Shape ===")
-        print(f"{all_df.shape[0]} rows × {all_df.shape[1]} columns\n")
-        
-        print("=== Combined DataFrame Columns ===")
-        print(all_df.columns.tolist())
-
-        print("=== Combined DataFrame Preview ===")
-        print(all_df.head())
-        
-        # Save to csv
-        if save_csv:
-            all_df.to_csv('test_raw_data.csv', index=False)
-            print("Test data saved to 'test_raw_data.csv'")
+        build_dataframe(2011, 2025, False)
     
 
 if __name__ == "__main__":
