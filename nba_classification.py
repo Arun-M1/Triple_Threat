@@ -145,7 +145,7 @@ def main():
 
     # df2 = build_dataframe(start_year + 1, end_year + 1, save_csv=True)
 
-    csv1 = "team_data_2.csv"
+    csv1 = "team_data_1.csv"
     csv2 = "test_raw_data.csv"
 
     combined_df = combine_dataframe(csv1, csv2)
