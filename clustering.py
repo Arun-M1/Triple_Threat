@@ -64,6 +64,79 @@ def create_initial_labels(data, features):
     return df
 
 
+def refine_labels_with_percentiles(data, refinement_features):
+    # """
+    # Step 2: Refine cluster labels using percentile-based thresholds
+    # """
+    # print("\n[STEP 2] Refining labels with percentiles...")
+    
+    df = data.copy()
+    
+    # Calculate percentiles within each season
+    # print(f"Calculating percentiles for: {refinement_features}")
+    for feat in refinement_features:
+        if feat in df.columns:
+            df[f'{feat}_percentile'] = df.groupby('Season_Year')[feat].rank(pct=True)
+        else:
+            print(f"Warning: {feat} not found in data")
+    
+    # Define thresholds (33% for each classification)
+    HIGH_THRESHOLD = 0.67
+    LOW_THRESHOLD = 0.33
+    
+    def refine_single_label(row):
+        initial = row['initial_cluster_name']
+        
+        # Strong 3-point indicators:
+        # High 3PA rate + longer avg distance
+        is_strong_3pt = (row.get('3PAr_percentile', 0.5) > HIGH_THRESHOLD and 
+                        row.get('Dist._percentile', 0.5) > HIGH_THRESHOLD)
+        
+        # Strong paint indicators:
+        # High rim frequency + low 3PA rate
+        is_strong_paint = (row.get('freq_0_3_percentile', 0.5) > HIGH_THRESHOLD and 
+                          row.get('3PAr_percentile', 0.5) < LOW_THRESHOLD)
+        
+        # Balanced indicators:
+        # Middle on both 3PA rate and rim frequency OR high mid-range
+        is_balanced = ((LOW_THRESHOLD < row.get('3PAr_percentile', 0.5) < HIGH_THRESHOLD and
+                       LOW_THRESHOLD < row.get('freq_0_3_percentile', 0.5) < HIGH_THRESHOLD) or
+                       row.get('freq_16_3P_percentile', 0) > HIGH_THRESHOLD)
+        
+        # Adjust labels if thresholds met (percentiles)
+        if is_strong_3pt and initial != 'three_point_focused':
+            return 'three_point_focused'
+        elif is_strong_paint and initial != 'paint_focused':
+            return 'paint_focused'
+        elif is_balanced and initial != 'balanced':
+            return 'balanced'
+        else:
+            return initial
+    
+    # Apply refinement
+    df['final_playstyle'] = df.apply(refine_single_label, axis=1)
+    
+    # Count changes
+    changes = (df['final_playstyle'] != df['initial_cluster_name']).sum()
+    change_percentile = changes / len(df) * 100
+    print(f"\n  Refinement changed {changes} labels ({change_percentile:.1f}%)")
+    
+    # Show distribution
+    print(f"\n  Initial distribution:")
+    print(f"    {df['initial_cluster_name'].value_counts().to_dict()}")
+    print(f"\n  Final distribution:")
+    print(f"    {df['final_playstyle'].value_counts().to_dict()}")
+    
+    # Show examples of changed labels
+    changed = df[df['final_playstyle'] != df['initial_cluster_name']]
+    if len(changed) > 0:
+        print(f"\n  Sample reclassified teams:")
+        print(changed[['Team_Acronym', 'Season_Year', 'initial_cluster_name', 
+                      'final_playstyle', '3PAr', 'freq_0_3', 'Dist.']].head(10).to_string(index=False))
+    
+    return df
+
+
 def main():
     features = ['3PAr',
             '3P%_per100',
@@ -81,11 +154,20 @@ def main():
             'Dist.',
             ]
     
+    refinement_features = [
+        '3PAr',
+        'freq_0_3',
+        'Dist.',
+        'freq_16_3P',
+    ]
+    
     df = pd.read_csv('combined_dataframe.csv')
     train_data = df[df['Season_Year'] <= 2020]
 
     labeled_data = create_initial_labels(train_data, features)
     print(labeled_data)
+
+    refined_data = refine_labels_with_percentiles(labeled_data, refinement_features)
 
 if __name__ == '__main__':
     main()
