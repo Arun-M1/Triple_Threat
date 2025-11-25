@@ -163,11 +163,16 @@ def main():
     
     df = pd.read_csv('combined_dataframe.csv')
     train_data = df[df['Season_Year'] <= 2020]
+    test_data = df[(df['Season_Year'] >= 2021) & (df['Season_Year'] <= 2024)]
 
     labeled_data = create_initial_labels(train_data, features)
     print(labeled_data)
 
     refined_data = refine_labels_with_percentiles(labeled_data, refinement_features)
+
+    #send data to csv
+    refined_data.to_csv('labeled_training_data.csv', index=False)
+    test_data.to_csv('test_data.csv', index=False)
 
 if __name__ == '__main__':
     main()
