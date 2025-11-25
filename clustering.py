@@ -170,14 +170,17 @@ def main():
     train_data = df[df['Season_Year'] <= 2020]
     test_data = df[(df['Season_Year'] >= 2021) & (df['Season_Year'] <= 2024)]
 
-    labeled_data = create_initial_labels(train_data, features)
-    print(labeled_data)
+    labeled_train_data = create_initial_labels(train_data, features)
+    labeled_test_data = create_initial_labels(test_data, features)
+    print(labeled_train_data)
+    print(labeled_test_data)
 
-    refined_data = refine_labels_with_percentiles(labeled_data, refinement_features)
+    refined_train_data = refine_labels_with_percentiles(labeled_train_data, refinement_features)
+    refined_test_data = refine_labels_with_percentiles(labeled_test_data, refinement_features)
 
     #send data to csv
-    refined_data.to_csv('labeled_training_data.csv', index=False)
-    test_data.to_csv('test_data.csv', index=False)
+    refined_train_data.to_csv('labeled_training_data.csv', index=False)
+    refined_test_data.to_csv('labeled_test_data.csv', index=False)
 
 if __name__ == '__main__':
     main()
