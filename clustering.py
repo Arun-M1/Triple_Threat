@@ -179,6 +179,5 @@ def main():
     refined_data.to_csv('labeled_training_data.csv', index=False)
     test_data.to_csv('test_data.csv', index=False)
 
-    
 if __name__ == '__main__':
     main()
