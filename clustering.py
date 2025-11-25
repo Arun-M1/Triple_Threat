@@ -74,6 +74,7 @@ def refine_labels_with_percentiles(data, refinement_features):
     
     # Calculate percentiles within each season
     # print(f"Calculating percentiles for: {refinement_features}")
+    
     for feat in refinement_features:
         if feat in df.columns:
             df[f'{feat}_percentile'] = df.groupby('Season_Year')[feat].rank(pct=True)
@@ -87,18 +88,15 @@ def refine_labels_with_percentiles(data, refinement_features):
     def refine_single_label(row):
         initial = row['initial_cluster_name']
         
-        # Strong 3-point indicators:
-        # High 3PA rate + longer avg distance
+        # Strong 3-point indicators: High 3PA rate + longer avg distance
         is_strong_3pt = (row.get('3PAr_percentile', 0.5) > HIGH_THRESHOLD and 
                         row.get('Dist._percentile', 0.5) > HIGH_THRESHOLD)
         
-        # Strong paint indicators:
-        # High rim frequency + low 3PA rate
+        # Strong paint indicators: High rim frequency + low 3PA rate
         is_strong_paint = (row.get('freq_0_3_percentile', 0.5) > HIGH_THRESHOLD and 
                           row.get('3PAr_percentile', 0.5) < LOW_THRESHOLD)
         
-        # Balanced indicators:
-        # Middle on both 3PA rate and rim frequency OR high mid-range
+        # Balanced indicators: Middle on both 3PA rate and rim frequency OR high mid-range
         is_balanced = ((LOW_THRESHOLD < row.get('3PAr_percentile', 0.5) < HIGH_THRESHOLD and
                        LOW_THRESHOLD < row.get('freq_0_3_percentile', 0.5) < HIGH_THRESHOLD) or
                        row.get('freq_16_3P_percentile', 0) > HIGH_THRESHOLD)
@@ -113,26 +111,33 @@ def refine_labels_with_percentiles(data, refinement_features):
         else:
             return initial
     
-    # Apply refinement
-    df['final_playstyle'] = df.apply(refine_single_label, axis=1)
-    
-    # Count changes
-    changes = (df['final_playstyle'] != df['initial_cluster_name']).sum()
-    change_percentile = changes / len(df) * 100
-    print(f"\n  Refinement changed {changes} labels ({change_percentile:.1f}%)")
-    
-    # Show distribution
+    # Show initial distribution
     print(f"\n  Initial distribution:")
     print(f"    {df['initial_cluster_name'].value_counts().to_dict()}")
+
+    # Apply refinement
+    df['final_playstyle_label'] = df.apply(refine_single_label, axis=1)
+    
+    # Count changes
+    changes = (df['final_playstyle_label'] != df['initial_cluster_name']).sum()
+    change_percent = changes / len(df) * 100
+    print(f"\n  Refinement changed {changes} labels ({change_percent:.1f}%)")
+    
+    # Show final distribution
     print(f"\n  Final distribution:")
-    print(f"    {df['final_playstyle'].value_counts().to_dict()}")
+    print(f"    {df['final_playstyle_label'].value_counts().to_dict()}")
     
     # Show examples of changed labels
-    changed = df[df['final_playstyle'] != df['initial_cluster_name']]
+    changed = df[df['final_playstyle_label'] != df['initial_cluster_name']]
     if len(changed) > 0:
         print(f"\n  Sample reclassified teams:")
         print(changed[['Team_Acronym', 'Season_Year', 'initial_cluster_name', 
-                      'final_playstyle', '3PAr', 'freq_0_3', 'Dist.']].head(10).to_string(index=False))
+                      'final_playstyle_label', '3PAr', 'freq_0_3', 'Dist.']].head(10).to_string(index=False))
+        
+    # Drop all temporary columns: initial clusters and percentiles
+    cols_to_drop = ['initial_cluster', 'initial_cluster_name'] + \
+                   [col for col in df.columns if col.endswith('_percentile')]
+    df = df.drop(columns=cols_to_drop)    
     
     return df
 
@@ -163,11 +168,17 @@ def main():
     
     df = pd.read_csv('combined_dataframe.csv')
     train_data = df[df['Season_Year'] <= 2020]
+    test_data = df[(df['Season_Year'] >= 2021) & (df['Season_Year'] <= 2024)]
 
     labeled_data = create_initial_labels(train_data, features)
     print(labeled_data)
 
     refined_data = refine_labels_with_percentiles(labeled_data, refinement_features)
 
+    #send data to csv
+    refined_data.to_csv('labeled_training_data.csv', index=False)
+    test_data.to_csv('test_data.csv', index=False)
+
+    
 if __name__ == '__main__':
     main()
