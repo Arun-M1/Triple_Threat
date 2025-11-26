@@ -3,12 +3,12 @@ from sklearn.preprocessing import StandardScaler
 import pandas as pd
 import numpy as np
 
-def create_initial_labels(data, features, scaler=None, kmeans=None, cluster_playstyle=None):
+def kmeans_playstyle(data, percentile_features, three_point_feature="3PAr_pct"):
     #returns dataframe
 
     #extract features
     df = data.copy()
-    X = df[features]
+    X = df[percentile_features]
 
     #check for missing values
     missing = X.isnull().sum()
@@ -16,67 +16,76 @@ def create_initial_labels(data, features, scaler=None, kmeans=None, cluster_play
         X = X.fillna(X.mean())
     
     #create new clusters
-    if scaler is None and kmeans is None and cluster_playstyle is None:
-        #standardize features, make dataframe
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+    #standardize features, make dataframe
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-        # X_scaled_df = pd.DataFrame(X_scaled, columns=features, index=X.index)
+    # X_scaled_df = pd.DataFrame(X_scaled, columns=features, index=X.index)
 
-        #K-Means clustering, attempt 10 times
-        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-        cluster_labels = kmeans.fit_predict(X_scaled)
+    #K-Means clustering, attempt 10 times
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(X_scaled)
 
-        #get unique clusters
-        unique, counts = np.unique(cluster_labels, return_counts=True)
-        for cluster, count in zip(unique, counts):
-            print(f"Cluster {cluster}: {count} teams ({count/len(cluster_labels)*100:.1f}%)")
+    #get unique clusters
+    unique, counts = np.unique(cluster_labels, return_counts=True)
+    for cluster, count in zip(unique, counts):
+        print(f"Train Cluster {cluster}: {count} teams-seasons ({count/len(cluster_labels)*100:.1f}%)")
 
-        centers = kmeans.cluster_centers_
-        centers_og = scaler.inverse_transform(centers)
-        centers_df = pd.DataFrame(centers_og, columns=features)
-        centers_df.index = ['Cluster 0', 'Cluster 1', 'Cluster 2']
+    centers = kmeans.cluster_centers_
+    centers_og = scaler.inverse_transform(centers)
+    centers_df = pd.DataFrame(centers_og, columns=percentile_features)
+    centers_df.index = [f"Cluster {i}" for i in range(len(centers_df))]
 
-        #print(f'Centers dataframe {centers_df}')
-        cluster_3par = centers_df['3PAr_pct'].values
-        print(cluster_3par)
+    if three_point_feature not in centers_df.columns:
+        raise ValueError(f"{three_point_feature} not found in percentile features!")
 
-        #distinguish clusters
-        three_pt_cluster = np.argmax(cluster_3par)
-        paint_cluster = np.argmin(cluster_3par)
-        print(three_pt_cluster, paint_cluster)
+    cluster_3par = centers_df[three_point_feature].values
 
-        all_clusters = [0, 1, 2]
+    three_pt_cluster = np.argmax(cluster_3par)
+    paint_cluster = np.argmin(cluster_3par)
+    balanced_cluster = [c for c in range(len(cluster_3par)) if c not in [three_pt_cluster, paint_cluster]][0]
 
-        balanced_cluster = [c for c in all_clusters if c not in [three_pt_cluster, paint_cluster]][0]
-        print(balanced_cluster)
+    cluster_playstyle = {
+        three_pt_cluster: 'three_point_focused',
+        paint_cluster: 'paint_focused',
+        balanced_cluster: 'balanced',
+    }
 
+    for cluster_id, style in cluster_playstyle.items():
+        print(f"Cluster {cluster_id}: {style}")
 
-        cluster_playstyle = {
-            three_pt_cluster: 'three_point_focused',
-            paint_cluster: 'paint_focused',
-            balanced_cluster: 'balanced',
-        }
+    df['cluster_id'] = cluster_labels
+    df['playstyle_label'] = df['cluster_id'].map(cluster_playstyle)
 
-        df['initial_cluster'] = cluster_labels
-        df['initial_cluster_name'] = df['initial_cluster'].map(cluster_playstyle)
+    # print(df)
 
-        # print(df)
+    return df, scaler, kmeans, cluster_playstyle, centers_df
 
-        return df, scaler, kmeans, cluster_playstyle
-    #use existing clusters
-    else:
-        X_scaled = scaler.transform(X)
-        cluster_labels = kmeans.predict(X_scaled)
+def assign_playstyles(test_df, percentile_features, scaler, kmeans, cluster_playstyle):
+    #returns dataframes
 
-        unique, counts = np.unique(cluster_labels, return_counts=True)
-        for cluster, count in zip(unique, counts):
-            print(f"Cluster {cluster}: {count} teams ({count/len(cluster_labels)*100:.1f}%)")
-        
-        df['initial_cluster'] = cluster_labels
-        df['initial_cluster_name'] = df['initial_cluster'].map(cluster_playstyle)
+    #extract features
+    df = test_df.copy()
+    X = df[percentile_features]
 
-        return df
+    #check for missing values
+    missing = X.isnull().sum()
+    if missing.any():
+        X = X.fillna(X.mean())
+
+    #transform, predict
+    X_scaled = scaler.transform(X)
+    cluster_labels = kmeans.predict(X_scaled)
+
+    # Cluster sizes
+    unique, counts = np.unique(cluster_labels, return_counts=True)
+    for cluster, count in zip(unique, counts):
+        print(f"Test Cluster {cluster}: {count} team-seasons ({count/len(cluster_labels)*100:.1f}%)")
+
+    df['cluster_id'] = cluster_labels
+    df['playstyle_label'] = df['cluster_id'].map(cluster_playstyle)
+
+    return df
         
 def refine_labels_with_percentiles(data, refinement_features):
     # """
@@ -84,81 +93,84 @@ def refine_labels_with_percentiles(data, refinement_features):
     # """
     # print("\n[STEP 2] Refining labels with percentiles...")
     
-    df = data.copy()
+    # df = data.copy()
     
     # Calculate percentiles within each season
     # print(f"Calculating percentiles for: {refinement_features}")
     
     # for feat in refinement_features:
     #     if feat in df.columns:
-    #         df[f'{feat}_percentile'] = df.groupby('Season_Year')[feat].rank(pct=True)
+    #         df[f'{feat}_pct'] = df.groupby('Season_Year')[feat].rank(pct=True)
     #     else:
     #         print(f"Warning: {feat} not found in data")
     
-    # Define thresholds (33% for each classification)
-    HIGH_THRESHOLD = 0.67
-    LOW_THRESHOLD = 0.33
+    # # Define thresholds (33% for each classification)
+    # HIGH_THRESHOLD = 0.67
+    # LOW_THRESHOLD = 0.33
     
-    def refine_single_label(row):
-        initial = row['initial_cluster_name']
+    # def refine_single_label(row):
+    #     initial = row['initial_cluster_name']
         
-        # Strong 3-point indicators: High 3PA rate + longer avg distance
-        is_strong_3pt = (row.get('3PAr_pct', 0.5) > HIGH_THRESHOLD and 
-                        row.get('Dist._pct', 0.5) > HIGH_THRESHOLD)
+    #     # Strong 3-point indicators: High 3PA rate + longer avg distance
+    #     is_strong_3pt = (row.get('3PAr_pct', 0.5) > HIGH_THRESHOLD and 
+    #                     row.get('Dist._pct', 0.5) > HIGH_THRESHOLD)
         
-        # Strong paint indicators: High rim frequency + low 3PA rate
-        is_strong_paint = (row.get('freq_0_3_pct', 0.5) > HIGH_THRESHOLD and 
-                          row.get('3PAr_pct', 0.5) < LOW_THRESHOLD)
+    #     # Strong paint indicators: High rim frequency + low 3PA rate
+    #     is_strong_paint = (row.get('freq_0_3_pct', 0.5) > HIGH_THRESHOLD and 
+    #                       row.get('3PAr_pct', 0.5) < LOW_THRESHOLD)
         
-        # Balanced indicators: Middle on both 3PA rate and rim frequency OR high mid-range
-        is_balanced = ((LOW_THRESHOLD < row.get('3PAr_pct', 0.5) < HIGH_THRESHOLD and
-                       LOW_THRESHOLD < row.get('freq_0_3_pct', 0.5) < HIGH_THRESHOLD) or
-                       row.get('freq_16_3P_pct', 0) > HIGH_THRESHOLD)
+    #     # Balanced indicators: Middle on both 3PA rate and rim frequency OR high mid-range
+    #     is_balanced = ((LOW_THRESHOLD < row.get('3PAr_pct', 0.5) < HIGH_THRESHOLD and
+    #                    LOW_THRESHOLD < row.get('freq_0_3_pct', 0.5) < HIGH_THRESHOLD) or
+    #                    row.get('freq_16_3P_pct', 0) > HIGH_THRESHOLD)
         
-        # Adjust labels if thresholds met (percentiles)
-        if is_strong_3pt and initial != 'three_point_focused':
-            return 'three_point_focused'
-        elif is_strong_paint and initial != 'paint_focused':
-            return 'paint_focused'
-        elif is_balanced and initial != 'balanced':
-            return 'balanced'
-        else:
-            return initial
+    #     # Adjust labels if thresholds met (percentiles)
+    #     if is_strong_3pt and initial != 'three_point_focused':
+    #         return 'three_point_focused'
+    #     elif is_strong_paint and initial != 'paint_focused':
+    #         return 'paint_focused'
+    #     elif is_balanced and initial != 'balanced':
+    #         return 'balanced'
+    #     else:
+    #         return initial
     
-    # Show initial distribution
-    print(f"\n  Initial distribution:")
-    print(f"    {df['initial_cluster_name'].value_counts().to_dict()}")
+    # # Show initial distribution
+    # print(f"\n  Initial distribution:")
+    # print(f"    {df['initial_cluster_name'].value_counts().to_dict()}")
 
-    # Apply refinement
-    df['final_playstyle_label'] = df.apply(refine_single_label, axis=1)
+    # # Apply refinement
+    # df['final_playstyle_label'] = df.apply(refine_single_label, axis=1)
     
-    # Count changes
-    changes = (df['final_playstyle_label'] != df['initial_cluster_name']).sum()
-    change_percent = changes / len(df) * 100
-    print(f"\n  Refinement changed {changes} labels ({change_percent:.1f}%)")
+    # # Count changes
+    # changes = (df['final_playstyle_label'] != df['initial_cluster_name']).sum()
+    # change_percent = changes / len(df) * 100
+    # print(f"\n  Refinement changed {changes} labels ({change_percent:.1f}%)")
     
-    # Show final distribution
-    print(f"\n  Final distribution:")
-    print(f"    {df['final_playstyle_label'].value_counts().to_dict()}")
+    # # Show final distribution
+    # print(f"\n  Final distribution:")
+    # print(f"    {df['final_playstyle_label'].value_counts().to_dict()}")
     
-    # Show examples of changed labels
-    changed = df[df['final_playstyle_label'] != df['initial_cluster_name']]
-    if len(changed) > 0:
-        print(f"\n  Sample reclassified teams:")
-        print(changed[['Team_Acronym', 'Season_Year', 'initial_cluster_name', 
-                      'final_playstyle_label', '3PAr', 'freq_0_3', 'Dist.']].head(10).to_string(index=False))
+    # # Show examples of changed labels
+    # changed = df[df['final_playstyle_label'] != df['initial_cluster_name']]
+    # if len(changed) > 0:
+    #     print(f"\n  Sample reclassified teams:")
+    #     print(changed[['Team_Acronym', 'Season_Year', 'initial_cluster_name', 
+    #                   'final_playstyle_label', '3PAr', 'freq_0_3', 'Dist.']].head(10).to_string(index=False))
         
     # Drop all temporary columns: initial clusters and percentiles
-    cols_to_drop = ['initial_cluster', 'initial_cluster_name'] + \
-                   [col for col in df.columns if col.endswith('_pct')]
-    df = df.drop(columns=cols_to_drop)    
+    # cols_to_drop = ['initial_cluster']
+    # df = df.drop(columns=cols_to_drop)   
+
+    # df = df.rename(columns={'initial_cluster_name': 'final_playstyle_label'})
     
-    return df
+    # return df
+    pass
 
 def add_percentile_features(df, features):
     df = df.copy()
     for feat in features:
-        df[f'{feat}_pct'] = df.groupby('Season_Year')[feat].rank(pct=True)
+        pct_col = f"{feat}_pct"
+        df[pct_col] = df.groupby('Season_Year')[feat].rank(pct=True)
     return df
 
 
@@ -179,35 +191,37 @@ def main():
             'Dist.',
             ]
     
-    refinement_features = [
-        '3PAr',
-        'freq_0_3',
-        'Dist.',
-        'freq_16_3P',
-    ]
+    # refinement_features = [
+    #     '3PAr',
+    #     'freq_0_3',
+    #     'Dist.',
+    #     'freq_16_3P',
+    # ]
     
     df = pd.read_csv('combined_dataframe.csv')
 
     #convert clustering features to percentiles
-    percentile_features = list(set(features))
-    df = add_percentile_features(df, percentile_features)
+    df = add_percentile_features(df, features)
+    print("df after adding percentile features: ", df)
+    percentile_features = [f"{feat}_pct" for feat in features]
 
     train_data = df[df['Season_Year'] <= 2020]
     test_data = df[(df['Season_Year'] >= 2021) & (df['Season_Year'] <= 2024)]
 
-    percentile_features = [f"{feat}_pct" for feat in features]
-    labeled_train_data, train_scaler, train_kmeans, cluster_mapping = create_initial_labels(train_data, percentile_features)
-    labeled_test_data = create_initial_labels(test_data, percentile_features, scaler=train_scaler, kmeans=train_kmeans, cluster_playstyle=cluster_mapping)
+    #kmeans
+    labeled_train_data, scaler, kmeans, cluster_map, center_df = kmeans_playstyle(train_data, percentile_features, three_point_feature='3PAr_pct')
 
-    print(labeled_train_data)
-    print(labeled_test_data)
+    print("\n[TRAIN] Cluster centers (percentile space):")
+    print(center_df)
 
-    refined_train_data = refine_labels_with_percentiles(labeled_train_data, refinement_features)
-    refined_test_data = refine_labels_with_percentiles(labeled_test_data, refinement_features)
+    #assign playstyle to season,team
+    labeled_test_data = assign_playstyles(test_data, percentile_features, scaler=scaler, kmeans=kmeans, cluster_playstyle=cluster_map)
 
-    #send data to csv
-    refined_train_data.to_csv('labeled_training_data.csv', index=False)
-    refined_test_data.to_csv('labeled_test_data.csv', index=False)
+    #refine if necessary
+
+    #save to csv
+    labeled_train_data.to_csv('labeled_training_data.csv', index=False)
+    labeled_test_data.to_csv('labeled_test_data.csv', index=False)
 
 if __name__ == '__main__':
     main()
