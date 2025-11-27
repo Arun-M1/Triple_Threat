@@ -101,7 +101,6 @@ def evaluate_model(name, y_true, y_pred, label_order):
 def run_svm(train_df, test_df, features, label_order):
     svm_model, scaler, X_scaled, y_train = train_svm(train_df, features)
     y_train_pred = svm_model.predict(X_scaled)
-    
     evaluate_model("SVM Train", y_train, y_train_pred, label_order)
 
     svm_test_df = test_svm(test_df, features, svm_model, scaler)
@@ -114,6 +113,7 @@ def run_svm(train_df, test_df, features, label_order):
 def run_catboost(train_df, test_df, features, label_order):
     catboost_model, X_train, y_train = train_catboost(train_df, features)
     y_train_pred = np.array(catboost_model.predict(X_train)).ravel()
+    evaluate_model("Catboost Train", y_train, y_train_pred, label_order)
 
     catboost_test_df = test_catboost(test_df, features, catboost_model)
     y_test_true = catboost_test_df['playstyle_label']
@@ -145,9 +145,12 @@ def main():
     train_df = pd.read_csv('labeled_training_data.csv')
     test_df = pd.read_csv('labeled_test_data.csv')
 
-    svm_model, scaler, svm_test_df = run_svm(train_df, test_df, features, labels_order)
 
-    cb_model, cb_test_df = run_catboost(train_df, test_df, features, labels_order)
+    percentile_features = [f"{feat}_pct" for feat in features]
+
+    svm_model, scaler, svm_test_df = run_svm(train_df, test_df, percentile_features, labels_order)
+
+    cb_model, cb_test_df = run_catboost(train_df, test_df, percentile_features, labels_order)
 
 if __name__ == '__main__':
     main()
