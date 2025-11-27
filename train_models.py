@@ -4,8 +4,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from sklearn.svm import SVC
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.neural_network import MLPClassifier
 from catboost import CatBoostClassifier
 
 
@@ -77,6 +78,55 @@ def test_catboost(data, features, model):
 
     return df
 
+
+def train_mlp(data, features):
+    X = data[features].copy()
+    y = data['playstyle_label'].copy()
+
+    X = X.fillna(X.mean())
+
+    print("Before scaling:")
+    print(X.describe())
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    print("\nAfter scaling:")
+    print(pd.DataFrame(X_scaled, columns=features).describe())
+
+    # Encode string labels -> ints
+    le = LabelEncoder()
+    y_enc = le.fit_transform(y)
+
+    mlp_model = MLPClassifier(
+        hidden_layer_sizes=(64, 32),
+        activation='relu',
+        solver='adam',
+        alpha=1e-3,
+        max_iter=800,
+        early_stopping=True,
+        n_iter_no_change=20,
+        validation_fraction=0.1,
+        random_state=42,
+    )
+
+    mlp_model.fit(X_scaled, y_enc)
+    return mlp_model, scaler, le, X_scaled, y
+
+
+def test_mlp(data, features, model, scaler, label_encoder):
+    df = data.copy()
+    X_test = df[features].copy()
+    X_test = X_test.fillna(X_test.mean())
+
+    X_test_scaled = scaler.transform(X_test)
+    y_pred_enc = model.predict(X_test_scaled)
+    y_pred = label_encoder.inverse_transform(y_pred_enc)
+
+    df['mlp_pred'] = y_pred
+    return df
+
+
 def evaluate_model(name, y_true, y_pred, label_order):
     print(f"\n{name} Accuracy: {accuracy_score(y_true, y_pred):.4f}")
     print(classification_report(y_true, y_pred))
@@ -122,22 +172,36 @@ def run_catboost(train_df, test_df, features, label_order):
 
     return catboost_model, catboost_test_df
 
+def run_mlp(train_df, test_df, features, label_order):
+    mlp_model, scaler, le, X_scaled, y_train = train_mlp(train_df, features)
+    y_train_pred_enc = mlp_model.predict(X_scaled)
+    y_train_pred = le.inverse_transform(y_train_pred_enc)
+    evaluate_model("MLP Train", y_train, y_train_pred, label_order)
+
+    mlp_test_df = test_mlp(test_df, features, mlp_model, scaler, le)
+    y_test_true = mlp_test_df['playstyle_label']
+    y_test_pred = mlp_test_df['mlp_pred']
+    evaluate_model("MLP Test", y_test_true, y_test_pred, label_order)
+
+    return mlp_model, scaler, mlp_test_df
+
 def main():
-    features = ['3PAr',
-            '3P%_per100',
-            'freq_3PA_corner',
-            'freq_0_3',
-            'freq_layups',
-            'freq_dunks',
-            'freq_10_16',
-            'freq_16_3P',
-            'Pace',
-            'AST_per100',
-            'TOV%',
-            'ORB%',
-            'FTr',
-            'Dist.',
-            ]
+    features = [
+        '3PAr',
+        '3P%_per100',
+        'freq_3PA_corner',
+        'freq_0_3',
+        'freq_layups',
+        'freq_dunks',
+        'freq_10_16',
+        'freq_16_3P',
+        'Pace',
+        'AST_per100',
+        'TOV%',
+        'ORB%',
+        'FTr',
+        'Dist.',
+    ]
     
     labels_order = ['balanced', 'paint_focused', 'three_point_focused']
 
@@ -148,9 +212,11 @@ def main():
 
     percentile_features = [f"{feat}_pct" for feat in features]
 
-    svm_model, scaler, svm_test_df = run_svm(train_df, test_df, percentile_features, labels_order)
+    svm_model, svm_scaler, svm_test_df = run_svm(train_df, test_df, percentile_features, labels_order)
 
     cb_model, cb_test_df = run_catboost(train_df, test_df, percentile_features, labels_order)
+
+    mlp_model, mlp_scaler, mlp_test_df = run_mlp(train_df, test_df, percentile_features, labels_order)
 
 if __name__ == '__main__':
     main()
