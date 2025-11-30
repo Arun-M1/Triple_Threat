@@ -5,9 +5,10 @@ import matplotlib.pyplot as plt
 
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, f1_score
 from sklearn.neural_network import MLPClassifier
 from catboost import CatBoostClassifier
+from sklearn.preprocessing import label_binarize
 
 
 def train_svm(data, features):
@@ -26,7 +27,7 @@ def train_svm(data, features):
     print("\nAfter scaling:")
     print(pd.DataFrame(X_scaled, columns=features).describe())
 
-    svm_model = SVC(kernel='rbf', random_state=42, C=1)
+    svm_model = SVC(kernel='rbf', random_state=42, C=1, probability=True)
     svm_model.fit(X_scaled, y)
 
     return svm_model, scaler, X_scaled, y
@@ -42,7 +43,7 @@ def test_svm(data, features, SVM, scaler):
     y_pred = SVM.predict(X_test_scaled)
     df['svm_pred'] = y_pred
 
-    return df
+    return df, X_test_scaled
 
 def train_catboost(data, features):
     X = data[features].copy()
@@ -76,7 +77,7 @@ def test_catboost(data, features, model):
 
     df['catboost_pred'] = y_pred
 
-    return df
+    return df, X_test
 
 
 def train_mlp(data, features):
@@ -124,7 +125,7 @@ def test_mlp(data, features, model, scaler, label_encoder):
     y_pred = label_encoder.inverse_transform(y_pred_enc)
 
     df['mlp_pred'] = y_pred
-    return df
+    return df, X_test_scaled
 
 
 def evaluate_model(name, y_true, y_pred, label_order):
@@ -148,18 +149,55 @@ def evaluate_model(name, y_true, y_pred, label_order):
     plt.title(f"{name} Confusion Matrix")
     plt.show()
 
+def evaluated_advanced_metrics(name, y_true, y_pred, y_proba, label_order):
+    print(f"Metrics for {name}")
+    label_to_int = {label: i for i, label in enumerate(label_order)}
+    y_true_int = np.array([label_to_int[l] for l in y_true])
+    y_pred_int = np.array([label_to_int[l] for l in y_pred])
+
+    y_true_binary = label_binarize(y_true_int, classes = [0, 1, 2])
+
+    #roc-auc
+    try:
+        roc_macro = roc_auc_score(y_true_binary, y_proba, average="macro")
+    except Exception as e:
+        print("ROC-AUC could not be computed:", e)
+        roc_macro = np.nan
+
+    # PR-AUC macro
+    pr_macro = 0.0
+    for i in range(3):
+        pr_macro += average_precision_score(y_true_binary[:, i], y_proba[:, i])
+    pr_macro /= 3.0
+
+    # Macro-F1
+    f1_macro = f1_score(y_true_int, y_pred_int, average="macro")
+
+    print(f"ROC-AUC (macro): {roc_macro:.4f}")
+    print(f"PR-AUC (macro):  {pr_macro:.4f}")
+    print(f"Macro-F1:        {f1_macro:.4f}")
+
+    return roc_macro, pr_macro, f1_macro
+
+
 def run_svm(train_df, test_df, features, label_order):
-    svm_model, scaler, X_scaled, y_train = train_svm(train_df, features)
-    y_train_pred = svm_model.predict(X_scaled)
+    svm_model, scaler, X_train_scaled, y_train = train_svm(train_df, features)
+    y_train_pred = svm_model.predict(X_train_scaled)
     evaluate_model("SVM Train", y_train, y_train_pred, label_order)
+
+    y_train_probability = svm_model.predict_proba(X_train_scaled)
+    evaluated_advanced_metrics("SVM Train", y_train, y_train_pred, y_train_probability, label_order)
 
     svm_train_df = train_df.copy()
     svm_train_df["svm_pred"] = y_train_pred
 
-    svm_test_df = test_svm(test_df, features, svm_model, scaler)
+    svm_test_df, X_test_scaled = test_svm(test_df, features, svm_model, scaler)
     y_test_true = svm_test_df['playstyle_label']
     y_test_pred = svm_test_df['svm_pred']
     evaluate_model("SVM Test", y_test_true, y_test_pred, label_order)
+
+    y_test_probability = svm_model.predict_proba(X_test_scaled)
+    evaluated_advanced_metrics("SVM Test", y_test_true, y_test_pred, y_test_probability, label_order)
 
     return svm_model, scaler, svm_train_df, svm_test_df
 
@@ -168,29 +206,41 @@ def run_catboost(train_df, test_df, features, label_order):
     y_train_pred = np.array(catboost_model.predict(X_train)).ravel()
     evaluate_model("Catboost Train", y_train, y_train_pred, label_order)
 
+    y_train_probability = catboost_model.predict_proba(X_train)
+    evaluated_advanced_metrics("Catboost Train", y_train, y_train_pred, y_train_probability, label_order)
+
     catboost_train_df = train_df.copy()
     catboost_train_df["catboost_pred"] = y_train_pred
 
-    catboost_test_df = test_catboost(test_df, features, catboost_model)
+    catboost_test_df, X_test = test_catboost(test_df, features, catboost_model)
     y_test_true = catboost_test_df['playstyle_label']
     y_test_pred = catboost_test_df['catboost_pred']
     evaluate_model("Catboost Test", y_test_true, y_test_pred, label_order)
 
+    y_test_probability = catboost_model.predict_proba(X_test)
+    evaluated_advanced_metrics("Catboost Test", y_test_true, y_test_pred, y_test_probability, label_order)
+
     return catboost_model, catboost_train_df, catboost_test_df
 
 def run_mlp(train_df, test_df, features, label_order):
-    mlp_model, scaler, le, X_scaled, y_train = train_mlp(train_df, features)
-    y_train_pred_enc = mlp_model.predict(X_scaled)
+    mlp_model, scaler, le, X_train_scaled, y_train = train_mlp(train_df, features)
+    y_train_pred_enc = mlp_model.predict(X_train_scaled)
     y_train_pred = le.inverse_transform(y_train_pred_enc)
     evaluate_model("MLP Train", y_train, y_train_pred, label_order)
+
+    y_train_probability = mlp_model.predict_proba(X_train_scaled)
+    evaluated_advanced_metrics("MLP Train", y_train, y_train_pred, y_train_probability, label_order)
 
     mlp_train_df = train_df.copy()
     mlp_train_df["mlp_pred"] = y_train_pred
 
-    mlp_test_df = test_mlp(test_df, features, mlp_model, scaler, le)
+    mlp_test_df, X_test_scaled = test_mlp(test_df, features, mlp_model, scaler, le)
     y_test_true = mlp_test_df['playstyle_label']
     y_test_pred = mlp_test_df['mlp_pred']
     evaluate_model("MLP Test", y_test_true, y_test_pred, label_order)
+
+    y_test_probability = mlp_model.predict_proba(X_test_scaled)
+    evaluated_advanced_metrics( "MLP Test", y_test_true, y_test_pred, y_test_probability, label_order)
 
     return mlp_model, scaler, mlp_train_df, mlp_test_df
 
