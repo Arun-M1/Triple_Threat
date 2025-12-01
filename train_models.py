@@ -6,12 +6,13 @@ import matplotlib.pyplot as plt
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, f1_score
+from sklearn.model_selection import cross_val_score, StratifiedKFold, GridSearchCV
 from sklearn.neural_network import MLPClassifier
 from catboost import CatBoostClassifier
 from sklearn.preprocessing import label_binarize
 
 
-def train_svm(data, features):
+def train_svm(data, features, svm_params=None):
     #return SVM, scaler, X_scaled, y
     X = data[features].copy()
     y = data['playstyle_label'].copy()
@@ -27,7 +28,19 @@ def train_svm(data, features):
     print("\nAfter scaling:")
     print(pd.DataFrame(X_scaled, columns=features).describe())
 
-    svm_model = SVC(kernel='rbf', random_state=42, C=1, probability=True)
+    # default hyperparameters if none provided
+    base_params = {
+        "kernel": "rbf",
+        "C": 1,
+        "gamma": "scale",
+        "probability": True,
+        "random_state": 42,
+        "class_weight": "balanced",
+    }
+    if svm_params is not None:
+        base_params.update(svm_params)
+
+    svm_model = SVC(**base_params)
     svm_model.fit(X_scaled, y)
 
     return svm_model, scaler, X_scaled, y
@@ -45,7 +58,7 @@ def test_svm(data, features, SVM, scaler):
 
     return df, X_test_scaled
 
-def train_catboost(data, features):
+def train_catboost(data, features, cb_params=None):
     X = data[features].copy()
     y = data['playstyle_label'].copy()
 
@@ -53,16 +66,20 @@ def train_catboost(data, features):
     print("Training data summary:")
     print(X.describe())
 
-    model = CatBoostClassifier(
-        loss_function = 'MultiClass',
-        eval_metric = 'Accuracy',
-        learning_rate = 0.1,
-        depth = 6,
-        iterations = 500,
-        random_seed = 42,
-        verbose = False
+    base_params = dict(
+        loss_function='MultiClass',
+        eval_metric='Accuracy',
+        learning_rate=0.1,
+        depth=6,
+        iterations=500,
+        random_seed=42,
+        verbose=False
     )
 
+    if cb_params is not None:
+        base_params.update(cb_params)
+
+    model = CatBoostClassifier(**base_params)
     model.fit(X, y)
 
     return model, X, y
@@ -80,7 +97,7 @@ def test_catboost(data, features, model):
     return df, X_test
 
 
-def train_mlp(data, features):
+def train_mlp(data, features, mlp_params=None):
     X = data[features].copy()
     y = data['playstyle_label'].copy()
 
@@ -99,17 +116,24 @@ def train_mlp(data, features):
     le = LabelEncoder()
     y_enc = le.fit_transform(y)
 
-    mlp_model = MLPClassifier(
-        hidden_layer_sizes=(64, 32),
-        activation='relu',
-        solver='adam',
-        alpha=1e-3,
-        max_iter=800,
-        early_stopping=True,
-        n_iter_no_change=20,
-        validation_fraction=0.1,
-        random_state=42,
-    )
+    base_params = {
+        'hidden_layer_sizes': (64, 32),
+        'activation': 'relu',
+        'solver': 'adam',
+        'alpha': 1e-3,
+        'max_iter': 800,
+        'early_stopping': True,
+        'n_iter_no_change': 20,
+        'validation_fraction': 0.1,
+        'random_state': 42,
+    }
+
+    if mlp_params is not None:
+        base_params.update(mlp_params)
+
+    print(f"\nTraining MLP with params: {base_params}")
+
+    mlp_model = MLPClassifier(**base_params)
 
     mlp_model.fit(X_scaled, y_enc)
     return mlp_model, scaler, le, X_scaled, y
@@ -126,6 +150,142 @@ def test_mlp(data, features, model, scaler, label_encoder):
 
     df['mlp_pred'] = y_pred
     return df, X_test_scaled
+
+def tune_svm_hyperparams(train_df, features, cv=5):
+    """
+    Hyperparameter tuning for SVM using GridSearchCV and Macro-F1.
+    Returns best params and best score.
+    """
+    X = train_df[features].copy()
+    y = train_df["playstyle_label"].copy()
+
+    X = X.fillna(X.mean())
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    param_grid = {
+        "C": [0.1, 1, 5, 10],
+        "gamma": ["scale", 0.1, 0.01],
+        "kernel": ["rbf"],
+        "class_weight": ["balanced", None],
+    }
+
+    cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+
+    grid = GridSearchCV(
+        SVC(probability=True, random_state=42),
+        param_grid=param_grid,
+        scoring="f1_macro",
+        cv=cv_splitter,
+        n_jobs=-1,
+        verbose=1,
+    )
+
+    grid.fit(X_scaled, y)
+
+    print(f"Best SVM params: {grid.best_params_}")
+    print(f"Best SVM CV F1-Macro: {grid.best_score_:.4f}")
+
+    return {
+        "best_params": grid.best_params_,
+        "best_score": grid.best_score_,
+        "cv_results": grid.cv_results_,
+    }
+
+def tune_catboost_hyperparams(train_df, features, cv=5):
+    X = train_df[features].copy()
+    y = train_df["playstyle_label"].copy()
+
+    X = X.fillna(X.mean())
+
+    base_model = CatBoostClassifier(
+        loss_function='MultiClass',
+        eval_metric='Accuracy',
+        random_seed=42,
+        verbose=False
+    )
+
+    param_grid = {
+        "depth": [2, 3],
+        "learning_rate": [0.05, 0.1],
+        "iterations": [200, 300],
+        "l2_leaf_reg": [7, 10],
+    }
+
+    cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+
+    grid = GridSearchCV(
+        base_model,
+        param_grid=param_grid,
+        scoring="f1_macro",
+        cv=cv_splitter,
+        n_jobs=-1,
+        verbose=1
+    )
+
+    grid.fit(X, y)
+
+    print(f"Best CatBoost params: {grid.best_params_}")
+    print(f"Best CatBoost CV F1-Macro: {grid.best_score_:.4f}")
+
+    return {
+        "best_params": grid.best_params_,
+        "best_score": grid.best_score_,
+        "cv_results": grid.cv_results_,
+    }
+
+def tune_mlp_hyperparams(train_df, features, cv=5, ):
+    X = train_df[features].copy()
+    y = train_df["playstyle_label"].copy()
+
+    X = X.fillna(X.mean())
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    le = LabelEncoder()
+    y_enc = le.fit_transform(y)
+
+    print("\n=== MLP GridSearchCV Hyperparameter Tuning ===")
+
+    base_mlp = MLPClassifier(
+        activation='relu',
+        solver='adam',
+        max_iter=600,
+        early_stopping=True,
+        n_iter_no_change=20,
+        validation_fraction=0.1,
+        random_state=42,
+    )
+
+    param_grid = {
+        "hidden_layer_sizes": [(64, 32), (128, 64), (64,)],
+        "alpha": [1e-4, 1e-3, 1e-2],
+        "learning_rate_init": [0.001, 0.01],
+    }
+
+    cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+
+    grid = GridSearchCV(
+        base_mlp,
+        param_grid=param_grid,
+        scoring="f1_macro",
+        cv=cv_splitter,
+        n_jobs=-1,
+        verbose=1,
+    )
+
+    grid.fit(X_scaled, y_enc)
+
+    print(f"Best MLP params: {grid.best_params_}")
+    print(f"Best MLP CV F1-Macro: {grid.best_score_:.4f}")
+
+    return {
+        "best_params": grid.best_params_,
+        "best_score": grid.best_score_,
+        "cv_results": grid.cv_results_,
+    }
 
 
 def evaluate_model(name, y_true, y_pred, label_order):
@@ -180,8 +340,8 @@ def evaluated_advanced_metrics(name, y_true, y_pred, y_proba, label_order):
     return roc_macro, pr_macro, f1_macro
 
 
-def run_svm(train_df, test_df, features, label_order):
-    svm_model, scaler, X_train_scaled, y_train = train_svm(train_df, features)
+def run_svm(train_df, test_df, features, label_order, svm_params=None):
+    svm_model, scaler, X_train_scaled, y_train = train_svm(train_df, features, svm_params=svm_params)
     y_train_pred = svm_model.predict(X_train_scaled)
     evaluate_model("SVM Train", y_train, y_train_pred, label_order)
 
@@ -201,8 +361,8 @@ def run_svm(train_df, test_df, features, label_order):
 
     return svm_model, scaler, svm_train_df, svm_test_df
 
-def run_catboost(train_df, test_df, features, label_order):
-    catboost_model, X_train, y_train = train_catboost(train_df, features)
+def run_catboost(train_df, test_df, features, label_order, cb_params=None):
+    catboost_model, X_train, y_train = train_catboost(train_df, features, cb_params=cb_params)
     y_train_pred = np.array(catboost_model.predict(X_train)).ravel()
     evaluate_model("Catboost Train", y_train, y_train_pred, label_order)
 
@@ -222,8 +382,8 @@ def run_catboost(train_df, test_df, features, label_order):
 
     return catboost_model, catboost_train_df, catboost_test_df
 
-def run_mlp(train_df, test_df, features, label_order):
-    mlp_model, scaler, le, X_train_scaled, y_train = train_mlp(train_df, features)
+def run_mlp(train_df, test_df, features, label_order, mlp_params=None):
+    mlp_model, scaler, le, X_train_scaled, y_train = train_mlp(train_df, features, mlp_params=mlp_params)
     y_train_pred_enc = mlp_model.predict(X_train_scaled)
     y_train_pred = le.inverse_transform(y_train_pred_enc)
     evaluate_model("MLP Train", y_train, y_train_pred, label_order)
@@ -240,7 +400,7 @@ def run_mlp(train_df, test_df, features, label_order):
     evaluate_model("MLP Test", y_test_true, y_test_pred, label_order)
 
     y_test_probability = mlp_model.predict_proba(X_test_scaled)
-    evaluated_advanced_metrics( "MLP Test", y_test_true, y_test_pred, y_test_probability, label_order)
+    evaluated_advanced_metrics("MLP Test", y_test_true, y_test_pred, y_test_probability, label_order)
 
     return mlp_model, scaler, mlp_train_df, mlp_test_df
 
@@ -333,15 +493,25 @@ def main():
     #svm
     train_df = pd.read_csv('labeled_training_data.csv')
     test_df = pd.read_csv('labeled_test_data.csv')
-
-
     percentile_features = [f"{feat}_pct" for feat in features]
 
-    svm_model, svm_scaler, svm_train_df, svm_test_df = run_svm(train_df, test_df, percentile_features, labels_order)
+    # svm hyperparamter tuning
+    svm_tuning = tune_svm_hyperparams(train_df, percentile_features, cv=5)
+    best_svm_params = svm_tuning["best_params"]
 
-    cb_model, cb_train_df, cb_test_df = run_catboost(train_df, test_df, percentile_features, labels_order)
+    svm_model, svm_scaler, svm_train_df, svm_test_df = run_svm(train_df, test_df, percentile_features, labels_order, svm_params=best_svm_params)
 
-    mlp_model, mlp_scaler, mlp_train_df, mlp_test_df = run_mlp(train_df, test_df, percentile_features, labels_order)
+    # catboost hyperparamter tuning
+    cb_tuning = tune_catboost_hyperparams(train_df, percentile_features, cv=5)
+    best_cb_params = cb_tuning["best_params"]
+
+    cb_model, cb_train_df, cb_test_df = run_catboost(train_df, test_df, percentile_features, labels_order, cb_params=best_cb_params)
+
+    # mlp hyperparamter tuning
+    mlp_tuning = tune_mlp_hyperparams(train_df, percentile_features, cv=5)
+    best_mlp_params = mlp_tuning["best_params"]
+
+    mlp_model, mlp_scaler, mlp_train_df, mlp_test_df = run_mlp(train_df, test_df, percentile_features, labels_order, mlp_params=best_mlp_params)
 
     # Weighted class/playstyle for each model (exponential)
     svm_overall = compute_model_overall_playstyles(svm_train_df, svm_test_df, pred_col="svm_pred", alpha=0.9)
