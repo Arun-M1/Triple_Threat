@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, f1_score
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, f1_score, roc_curve, precision_recall_curve, auc
 from sklearn.model_selection import cross_val_score, StratifiedKFold, GridSearchCV
 from sklearn.neural_network import MLPClassifier
 from catboost import CatBoostClassifier
@@ -315,7 +315,7 @@ def evaluated_advanced_metrics(name, y_true, y_pred, y_proba, label_order):
     y_true_int = np.array([label_to_int[l] for l in y_true])
     y_pred_int = np.array([label_to_int[l] for l in y_pred])
 
-    y_true_binary = label_binarize(y_true_int, classes = [0, 1, 2])
+    y_true_binary = label_binarize(y_true_int, classes=[0, 1, 2])
 
     #roc-auc
     try:
@@ -336,6 +336,33 @@ def evaluated_advanced_metrics(name, y_true, y_pred, y_proba, label_order):
     print(f"ROC-AUC (macro): {roc_macro:.4f}")
     print(f"PR-AUC (macro):  {pr_macro:.4f}")
     print(f"Macro-F1:        {f1_macro:.4f}")
+
+    # ---------- Plot ROC curves (one-vs-rest) ----------
+    plt.figure(figsize=(7, 6))
+    for i, label_name in enumerate(label_order):
+        fpr, tpr, _ = roc_curve(y_true_binary[:, i], y_proba[:, i])
+        class_auc = auc(fpr, tpr)
+        plt.plot(fpr, tpr, label=f"{label_name} (AUC={class_auc:.4f})")
+    plt.plot([0, 1], [0, 1], 'k--', linewidth=1)
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(f"ROC Curves - {name}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # ---------- Plot PR curves (one-vs-rest) ----------
+    plt.figure(figsize=(7, 6))
+    for i, label_name in enumerate(label_order):
+        precision, recall, _ = precision_recall_curve(y_true_binary[:, i], y_proba[:, i])
+        class_ap = average_precision_score(y_true_binary[:, i], y_proba[:, i])
+        plt.plot(recall, precision, label=f"{label_name} (PR-AUC={class_ap:.4f})")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(f"Precision-Recall Curves - {name}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     return roc_macro, pr_macro, f1_macro
 
