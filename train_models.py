@@ -407,6 +407,21 @@ def run_catboost(train_df, test_df, features, label_order, cb_params=None):
     y_test_probability = catboost_model.predict_proba(X_test)
     evaluated_advanced_metrics("Catboost Test", y_test_true, y_test_pred, y_test_probability, label_order)
 
+    importances = catboost_model.get_feature_importance()
+    fi_df = pd.DataFrame({
+        "feature": features,
+        "importance": importances
+    }).sort_values("importance", ascending=False)
+
+    print("\n=== CatBoost Feature Importances ===")
+    print(fi_df.to_string(index=False))
+
+    plt.figure(figsize=(8, 5))
+    sns.barplot(data=fi_df, x="importance", y="feature", orient="h")
+    plt.title("CatBoost Feature Importance")
+    plt.tight_layout()
+    plt.show()
+
     return catboost_model, catboost_train_df, catboost_test_df
 
 def run_mlp(train_df, test_df, features, label_order, mlp_params=None):
